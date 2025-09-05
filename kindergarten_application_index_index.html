@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>幼稚園申請追蹤 | Kindergarten Application Index</title>
+  <style>
+    :root{--bg:#0b1020;--card:#11162a;--muted:#8aa0b9;--text:#eaf2ff;--accent:#4da3ff;--ok:#27c084;--warn:#ffc857;--danger:#ff6a6a;--line:#1e2742}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0b1428);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{max-width:1100px;margin:24px auto;padding:24px}
+    .header{display:flex;gap:16px;align-items:end;flex-wrap:wrap}
+    h1{margin:0;font-size:clamp(22px,3.2vw,32px);letter-spacing:.3px}
+    .muted{color:var(--muted)}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    .control{background:var(--card);border:1px solid var(--line);padding:10px 12px;border-radius:12px;display:flex;align-items:center;gap:8px}
+    input[type="text"]{background:transparent;border:none;outline:none;color:var(--text);min-width:220px}
+    .btn{cursor:pointer;background:var(--accent);color:#001; border:none;padding:10px 14px;border-radius:12px;font-weight:600}
+    .btn.secondary{background:transparent;color:var(--text);border:1px solid var(--line)}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:4px;overflow:hidden;margin-top:16px}
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    thead th{position:sticky;top:0;background:rgba(17,22,42,.9);backdrop-filter:saturate(140%) blur(6px);border-bottom:1px solid var(--line);text-align:left;font-size:14px;padding:12px}
+    tbody td{border-top:1px solid var(--line);padding:12px;vertical-align:top}
+    tbody tr:hover{background:rgba(77,163,255,.06)}
+    .name{font-weight:650}
+    .status-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);font-size:13px}
+    .status-ok{background:rgba(39,192,132,.15);border-color:rgba(39,192,132,.35)}
+    .status-empty{background:rgba(138,160,185,.08)}
+    .check{accent-color:var(--ok);width:18px;height:18px}
+    .hint{font-size:12px}
+    .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+    .flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .note{color:var(--muted);font-size:13px}
+    footer{margin:18px 0;color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <h1>幼稚園申請追蹤表 <span class="muted">(Kindergarten Application Index)</span></h1>
+      <span class="badge">最後更新：<span id="updated"></span></span>
+    </div>
+
+    <div class="controls">
+      <label class="control" title="搜尋學校或日期">
+        🔎 <input id="q" type="text" placeholder="搜尋學校 / 日期 / 關鍵字" />
+      </label>
+      <label class="control">
+        <input id="onlyChecked" type="checkbox" /> 只顯示 ✅ 已處理
+      </label>
+      <button class="btn" id="exportCsv">匯出 CSV</button>
+      <button class="btn secondary" id="clearChecks">清除本機 ✅ 記錄</button>
+    </div>
+
+    <div class="card">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th style="width:44%">幼稚園</th>
+            <th style="width:42%">接受申請日期 / 備註</th>
+            <th style="width:14%">Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <footer>提示：✔️ 切換 Status 會儲存於瀏覽器 <span class="badge">localStorage</span>，不會上傳資料。</footer>
+  </div>
+
+<script>
+// ---- Data --------------------------------------------------------------
+const rows = [
+  { name: "康傑中英文幼稚園", date: "2025年6月9日至2025年9月15日下午5時正", note: "", checked: true },
+  { name: "綠楊幼稚園暨幼兒園", date: "2025年9月13日至9月20日（郵寄）", note: "", checked: false },
+  { name: "心怡天地國際幼兒園暨幼稚", date: "2025年8月至10月12日（郵寄）", note: "14/8✅", checked: true },
+  { name: "維多利亞（海之戀）國際幼兒園", date: "2025年9月15日至2025年12月15日（星期一）下午5時", note: "", checked: false },
+  { name: "青衣學之園", date: "將於2026年1月公佈", note: "", checked: false },
+  { name: "九龍塘迦南", date: "2025年9月15日至10月19日", note: "", checked: false },
+  { name: "迦南幼稚園（海濱花園）", date: "2025年9月15日至10月19日", note: "", checked: false },
+  { name: "St Catherine 國際英文幼稚園", date: "", note: "", checked: false },
+  { name: "德萃", date: "", note: "4/9✅", checked: true },
+  { name: "明慧國際幼稚園", date: "", note: "12/8✅", checked: true },
+  { name: "卓思英文學校暨幼稚園", date: "2025年10月27日至11月1日", note: "", checked: false },
+  { name: "劍鳴幼稚園", date: "2026年1月7日上午9時至1月14日下午5時", note: "", checked: false },
+  { name: "雅士圖國際幼稚園", date: "", note: "3/9✅", checked: true },
+  { name: "啟思幼稚園（青衣）", date: "", note: "", checked: false },
+];
+
+// ---- Persistence helpers ---------------------------------------------
+const KEY = "kinder-index:v1";
+const saved = JSON.parse(localStorage.getItem(KEY) || "{}");
+function getSaved(name){ return saved[name]; }
+function setSaved(name,val){ saved[name] = !!val; localStorage.setItem(KEY, JSON.stringify(saved)); }
+function clearSaved(){ localStorage.removeItem(KEY); location.reload(); }
+
+// ---- Render ------------------------------------------------------------
+const tbody = document.querySelector('#tbl tbody');
+function render(){
+  const q = document.querySelector('#q').value.trim().toLowerCase();
+  const onlyChecked = document.querySelector('#onlyChecked').checked;
+  tbody.innerHTML = '';
+
+  rows.forEach(r => {
+    const persisted = getSaved(r.name);
+    const isChecked = typeof persisted === 'boolean' ? persisted : r.checked;
+
+    const textBlob = (r.name + ' ' + r.date + ' ' + (r.note||'')).toLowerCase();
+    if(q && !textBlob.includes(q)) return;
+    if(onlyChecked && !isChecked) return;
+
+    const tr = document.createElement('tr');
+
+    const td1 = document.createElement('td');
+    td1.innerHTML = `<div class="name">${r.name}</div>` + (r.note ? `<div class="note">備註：${r.note}</div>` : '');
+
+    const td2 = document.createElement('td');
+    td2.innerHTML = r.date ? r.date : '<span class="muted">—</span>';
+
+    const td3 = document.createElement('td');
+    const label = document.createElement('label');
+    label.className = 'status-pill ' + (isChecked ? 'status-ok' : 'status-empty');
+
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.className = 'check';
+    chk.checked = isChecked;
+    chk.addEventListener('change', e => {
+      setSaved(r.name, e.target.checked);
+      label.className = 'status-pill ' + (e.target.checked ? 'status-ok' : 'status-empty');
+    });
+
+    const text = document.createElement('span');
+    text.textContent = isChecked ? '✅ 已處理' : '待處理';
+    // keep text in sync
+    const observer = new MutationObserver(() => { text.textContent = chk.checked ? '✅ 已處理' : '待處理'; });
+    observer.observe(chk, { attributes:true, attributeFilter:['checked']});
+
+    label.appendChild(chk); label.appendChild(text);
+    td3.appendChild(label);
+
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+    tbody.appendChild(tr);
+  });
+}
+
+render();
+
+// ---- Controls ----------------------------------------------------------
+document.querySelector('#q').addEventListener('input', render);
+document.querySelector('#onlyChecked').addEventListener('change', render);
+document.querySelector('#clearChecks').addEventListener('click', clearSaved);
+
+document.getElementById('updated').textContent = new Date().toLocaleString();
+
+// ---- Export CSV --------------------------------------------------------
+function exportCsv(){
+  const headers = ['幼稚園','接受申請日期 / 備註','Status'];
+  const visible = Array.from(tbody.querySelectorAll('tr')).map(tr => {
+    const tds = tr.querySelectorAll('td');
+    const name = tds[0].querySelector('.name').textContent.trim();
+    const noteEl = tds[0].querySelector('.note');
+    const note = noteEl ? noteEl.textContent.replace(/^備註：/,'') : '';
+    const date = tds[1].textContent.trim();
+    const status = tds[2].querySelector('input').checked ? '已處理' : '待處理';
+    return [name, (date || '') + (note? ` | 備註:${note}`:''), status];
+  });
+  const lines = [headers, ...visible]
+    .map(row => row.map(x => '"' + (x || '').replaceAll('"','""') + '"').join(','))
+    .join('\n');
+  const blob = new Blob([lines], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '幼稚園申請追蹤.csv';
+  a.click();
+}
+
+document.getElementById('exportCsv').addEventListener('click', exportCsv);
+</script>
+</body>
+</html>
