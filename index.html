@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>幼稚園申請追蹤 | Kindergarten Application Index</title>
+  <title>幼稚園申請追蹤</title>
   <style>
     :root{--bg:#0b1020;--card:#11162a;--muted:#8aa0b9;--text:#eaf2ff;--accent:#4da3ff;--ok:#27c084;--warn:#ffc857;--danger:#ff6a6a;--line:#1e2742}
     *{box-sizing:border-box}
@@ -70,7 +70,7 @@
         <input id="onlyChecked" type="checkbox" /> 只顯示 ✅ 已處理
       </label>
       <button class="btn" id="exportCsv">匯出 CSV</button>
-      <button class=\"btn secondary\" id=\"clearChecks\">清除本機 ✅ / 名稱 / 備註 / 日期</button>
+      <button class="btn secondary" id="clearChecks">清除本機 ✅ / 名稱 / 備註 / 日期</button>
     </div>
 
     <div class="card">
@@ -86,7 +86,7 @@
       </table>
     </div>
 
-    <footer>提示：✔️ 名稱、備註、勾選、匯出都只儲存於瀏覽器 <span class="badge">localStorage</span>。</footer>
+    <footer>提示：✔️ 名稱、備註、日期、勾選、匯出都只儲存於瀏覽器 <span class="badge">localStorage</span>。</footer>
   </div>
 
 <script>
@@ -98,7 +98,8 @@ const rows = [
   { id: 3, name: "維多利亞（海之戀）國際幼兒園", date: "2025年9月15日至2025年12月15日（星期一）下午5時", note: "", checked: false },
   { id: 4, name: "青衣學之園", date: "將於2026年1月公佈", note: "", checked: false },
   { id: 5, name: "九龍塘迦南", date: "2025年9月15日至10月19日", note: "", checked: false },
-  { id: 6, name: "迦南幼稚園（海濱花園）", date: "2025年9月15日至10月19日", note: "", checked: false },
+  { id: 6, name: "迦南幼稚園（海濱花園)", date: "2025年9月15日至10月19日", note: "", checked: false },
+  { id:13, name: "迦南幼稚園(窩打老道)", date: "", note: "", checked: false },
   { id: 7, name: "St Catherine 國際英文幼稚園", date: "", note: "", checked: false },
   { id: 8, name: "德萃", date: "", note: "4/9✅", checked: true },
   { id: 9, name: "明慧國際幼稚園", date: "", note: "12/8✅", checked: true },
@@ -109,7 +110,7 @@ const rows = [
 ];
 
 /* --------------------------- LocalStorage ------------------------------ */
-// 狀態、名稱、備註分開儲存，以穩定 ID 為鍵
+// 狀態、名稱、備註、日期分開儲存，以穩定 ID 為鍵
 const STATUS_KEY = "kinder-status:v1";
 const NAMES_KEY  = "kinder-names:v1";
 const NOTES_KEY  = "kinder-notes:v1";
@@ -240,7 +241,7 @@ function render(){
     const displayDate = getDate(id, r.date || "");
     const isChecked = getStatus(id, r.checked);
 
-    const textBlob = (displayName + ' ' + (r.date||'') + ' ' + displayNote).toLowerCase();
+    const textBlob = (displayName + ' ' + (displayDate||'') + ' ' + displayNote).toLowerCase();
     if(q && !textBlob.includes(q)) return;
     if(onlyChecked && !isChecked) return;
 
@@ -253,7 +254,6 @@ function render(){
       <div class="note">備註：<span class="note-text" data-id="${id}" contenteditable="true" spellcheck="false" title="點擊可編輯備註">${displayNote}</span></div>
     `;
 
-    // 名稱編輯 → 存回 localStorage
     const nameEl = td1.querySelector('.name');
     nameEl.addEventListener('blur', ()=>{
       const newName = (nameEl.textContent || '').trim() || r.name;
@@ -261,7 +261,6 @@ function render(){
       render();
     });
 
-    // 備註編輯 → 存回 localStorage
     const noteEl = td1.querySelector('.note-text');
     noteEl.addEventListener('blur', ()=>{
       const newNote = (noteEl.textContent || '').trim();
@@ -269,19 +268,25 @@ function render(){
       render();
     });
 
-    // col 2: 日期（含高亮）
+    // col 2: 日期（可編輯；含高亮）
     const td2 = document.createElement('td');
-    const combinedForDeadline = (r.date||'') + ' ' + displayNote; // 備註也可能含日期
+    const combinedForDeadline = (displayDate||'') + ' ' + displayNote; // 備註也可能含日期
     const deadline = parseDeadline(combinedForDeadline);
     const {cls,label} = classifyTier(deadline);
     if(cls){ td2.classList.add('tier', cls); td2.setAttribute('data-due-label', label); }
-    const range = parseRange(r.date);
+    const range = parseRange(displayDate);
     if(inRangeToday(range)){
       td2.classList.remove('tier','due-14','due-7','due-3','due-today','due-over');
       td2.removeAttribute('data-due-label');
       td2.classList.add('within');
     }
-    td2.textContent = r.date || '—';
+    td2.innerHTML = `<span class="date-text" data-id="${id}" contenteditable="true" spellcheck="false" title="點擊可編輯日期">${displayDate || '—'}</span>`;
+    const dateEl = td2.querySelector('.date-text');
+    dateEl.addEventListener('blur', ()=>{
+      const newDate = (dateEl.textContent || '').trim();
+      setDate(id, newDate);
+      render();
+    });
 
     // col 3: 勾選狀態
     const td3 = document.createElement('td');
@@ -320,7 +325,7 @@ function exportCsv(){
     const tds = tr.querySelectorAll('td');
     const name = tds[0].querySelector('.name').textContent.trim();
     const note = (tds[0].querySelector('.note-text')?.textContent || '').trim();
-    const date = tds[1].textContent.trim();
+    const date = (tds[1].querySelector('.date-text')?.textContent || '').trim();
     const status = tds[2].querySelector('input').checked ? '已處理' : '待處理';
     return [name, (date || '') + (note? ` | 備註:${note}`:''), status];
   });
