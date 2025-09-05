@@ -56,7 +56,7 @@
   <div class="wrap">
     <div class="header">
       <div>
-        <h1>幼稚園申請追蹤表</h1>
+        <h1>Caleb's family</h1>
         <span class="badge">最後更新：<span id="updated"></span></span>
       </div>
       <div class="badge clock">香港時間 (GMT+8)：<span id="hkTime"></span></div>
@@ -70,16 +70,16 @@
         <input id="onlyChecked" type="checkbox" /> 只顯示 ✅ 已處理
       </label>
       <button class="btn" id="exportCsv">匯出 CSV</button>
-      <button class="btn secondary" id="clearChecks">清除本機 ✅ / 名稱 / 備註 / 日期</button>
     </div>
 
     <div class="card">
       <table id="tbl">
         <thead>
           <tr>
-            <th style="width:44%">幼稚園</th>
-            <th style="width:42%">接受申請日期 / 備註</th>
-            <th style="width:14%">Status</th>
+            <th style="width:30%">幼稚園</th>
+            <th style="width:30%">接受申請日期 / 備註</th>
+            <th style="width:20%">學費</th>
+            <th style="width:20%">Status</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -110,16 +110,18 @@ const rows = [
 ];
 
 /* --------------------------- LocalStorage ------------------------------ */
-// 狀態、名稱、備註、日期分開儲存，以穩定 ID 為鍵
+// 狀態、名稱、備註、日期、學費分開儲存，以穩定 ID 為鍵
 const STATUS_KEY = "kinder-status:v1";
 const NAMES_KEY  = "kinder-names:v1";
 const NOTES_KEY  = "kinder-notes:v1";
 const DATES_KEY  = "kinder-dates:v1";
+const TUITION_KEY= "kinder-tuition:v1";
 
-const savedStatus = JSON.parse(localStorage.getItem(STATUS_KEY) || "{}");
-const savedNames  = JSON.parse(localStorage.getItem(NAMES_KEY)  || "{}");
-const savedNotes  = JSON.parse(localStorage.getItem(NOTES_KEY)  || "{}");
-const savedDates  = JSON.parse(localStorage.getItem(DATES_KEY)  || "{}");
+const savedStatus   = JSON.parse(localStorage.getItem(STATUS_KEY) || "{}");
+const savedNames    = JSON.parse(localStorage.getItem(NAMES_KEY)  || "{}");
+const savedNotes    = JSON.parse(localStorage.getItem(NOTES_KEY)  || "{}");
+const savedDates    = JSON.parse(localStorage.getItem(DATES_KEY)  || "{}");
+const savedTuition  = JSON.parse(localStorage.getItem(TUITION_KEY)|| "{}");
 
 const getStatus = (id, fallback)=> (id in savedStatus) ? savedStatus[id] : fallback;
 const setStatus = (id, val)=>{ savedStatus[id] = !!val; localStorage.setItem(STATUS_KEY, JSON.stringify(savedStatus)); };
@@ -133,11 +135,15 @@ const setNote = (id, val)=>{ savedNotes[id] = (val||""); localStorage.setItem(NO
 const getDate = (id, fallback)=> savedDates[id] ?? (fallback||"");
 const setDate = (id, val)=>{ savedDates[id] = (val||""); localStorage.setItem(DATES_KEY, JSON.stringify(savedDates)); };
 
+const getTuition = (id, fallback)=> savedTuition[id] ?? (fallback||"");
+const setTuition = (id, val)=>{ savedTuition[id] = (val||""); localStorage.setItem(TUITION_KEY, JSON.stringify(savedTuition)); };
+
 function clearSaved(){
   localStorage.removeItem(STATUS_KEY);
   localStorage.removeItem(NAMES_KEY);
   localStorage.removeItem(NOTES_KEY);
   localStorage.removeItem(DATES_KEY);
+  localStorage.removeItem(TUITION_KEY);
   location.reload();
 }
 
@@ -239,9 +245,10 @@ function render(){
     const displayName = getName(id, r.name);
     const displayNote = getNote(id, r.note || "");
     const displayDate = getDate(id, r.date || "");
+    const displayTuition = getTuition(id, r.tuition || "");
     const isChecked = getStatus(id, r.checked);
 
-    const textBlob = (displayName + ' ' + (displayDate||'') + ' ' + displayNote).toLowerCase();
+    const textBlob = (displayName + ' ' + (displayDate||'') + ' ' + displayNote + ' ' + displayTuition).toLowerCase();
     if(q && !textBlob.includes(q)) return;
     if(onlyChecked && !isChecked) return;
 
@@ -288,7 +295,18 @@ function render(){
       render();
     });
 
-    // col 3: 勾選狀態
+    // col 3: 學費（可編輯）
+    const tdTuition = document.createElement('td');
+    tdTuition.innerHTML = `<span class="tuition-text" data-id="${id}" contenteditable="true" spellcheck="false" title="點擊可編輯學費（例如：$6,500 / 月）">${displayTuition || ''}</span>`;
+    const tuitionEl = tdTuition.querySelector('.tuition-text');
+    tuitionEl.addEventListener('blur', ()=>{
+      const newTuition = (tuitionEl.textContent || '').trim();
+      setTuition(id, newTuition);
+      // 不重整也可，但為一致性沿用 render() 更新
+      render();
+    });
+
+    // col 4: 勾選狀態
     const td3 = document.createElement('td');
     const labelEl = document.createElement('label');
     labelEl.className = 'status-pill ' + (isChecked ? 'status-ok' : 'status-empty');
@@ -304,7 +322,7 @@ function render(){
     labelEl.appendChild(chk); labelEl.appendChild(textNode);
     td3.appendChild(labelEl);
 
-    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(tdTuition); tr.appendChild(td3);
     tbody.appendChild(tr);
   });
 }
@@ -320,14 +338,15 @@ document.getElementById('updated').textContent = new Date().toLocaleString();
 
 /* ------------------------------- Export -------------------------------- */
 function exportCsv(){
-  const headers = ['幼稚園','接受申請日期 / 備註','Status'];
+  const headers = ['幼稚園','接受申請日期 / 備註','學費','Status'];
   const visible = Array.from(tbody.querySelectorAll('tr')).map(tr => {
-    const tds = tr.querySelectorAll('td');
-    const name = tds[0].querySelector('.name').textContent.trim();
-    const note = (tds[0].querySelector('.note-text')?.textContent || '').trim();
-    const date = (tds[1].querySelector('.date-text')?.textContent || '').trim();
-    const status = tds[2].querySelector('input').checked ? '已處理' : '待處理';
-    return [name, (date || '') + (note? ` | 備註:${note}`:''), status];
+    const name = tr.querySelector('.name')?.textContent.trim() || '';
+    const note = tr.querySelector('.note-text')?.textContent.trim() || '';
+    const date = tr.querySelector('.date-text')?.textContent.trim() || '';
+    const tuition = tr.querySelector('.tuition-text')?.textContent.trim() || '';
+    const status = tr.querySelector('input[type="checkbox"]')?.checked ? '已處理' : '待處理';
+    const dateAndNote = (date || '') + (note? ` | 備註:${note}`:'');
+    return [name, dateAndNote, tuition, status];
   });
   const lines = [headers, ...visible]
     .map(row => row.map(x => '"' + (x || '').replaceAll('"','""') + '"').join(','))
