@@ -10,7 +10,7 @@
     html,body{height:100%}
     body{margin:0;background:linear-gradient(180deg,#0b1020,#0b1428);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
     .wrap{max-width:1100px;margin:24px auto;padding:24px}
-    .header{display:flex;gap:16px;align-items:end;flex-wrap:wrap;justify-content:space-between}
+    .header{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;flex-wrap:wrap}
     h1{margin:0;font-size:clamp(22px,3.2vw,32px);letter-spacing:.3px}
     .muted{color:var(--muted)}
     .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
@@ -28,17 +28,11 @@
     .status-ok{background:rgba(39,192,132,.15);border-color:rgba(39,192,132,.35)}
     .status-empty{background:rgba(138,160,185,.08)}
     .check{accent-color:var(--ok);width:18px;height:18px}
-    .hint{font-size:12px}
     .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
     .note{color:var(--muted);font-size:13px}
+    .clock{white-space:nowrap}
     footer{margin:18px 0;color:var(--muted);font-size:13px}
 
-    /* highlight */
-    .within{background:rgba(77,163,255,.2)}
-    .due-over{background:rgba(255,106,106,.16)}
-    .due-today{background:rgba(77,163,255,.18)}
-    .due-soon{background:rgba(255,200,87,.12)}
-  
     /* === 分級提醒（14 / 7 / 3 天 / 今日 / 已過期） === */
     .tier{position:relative}
     .tier::after{content:attr(data-due-label);margin-left:8px;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
@@ -52,16 +46,20 @@
     .due-today::after{background:rgba(77,163,255,.35);color:#001933}
     .due-over{background:rgba(180,60,60,.18)}
     .due-over::after{background:rgba(180,60,60,.38);color:#2b0000}
+
+    /* 接受期內（…至… 且今天在範圍內） */
+    .within{position:relative;background:rgba(77,163,255,.14)}
+    .within::after{content:'接受期內';margin-left:8px;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:rgba(77,163,255,.35);color:#001933}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="header">
-      <h1>幼稚園申請追蹤表 <span class="muted">(Kindergarten Application Index)</span></h1>
       <div>
-        <span class="badge">香港時間 (GMT+8)：<span id="hkclock"></span></span>
+        <h1>幼稚園申請追蹤表 <span class="muted">(Kindergarten Application Index)</span></h1>
         <span class="badge">最後更新：<span id="updated"></span></span>
       </div>
+      <div class="badge clock">香港時間 (GMT+8)：<span id="hkTime"></span></div>
     </div>
 
     <div class="controls">
@@ -72,7 +70,7 @@
         <input id="onlyChecked" type="checkbox" /> 只顯示 ✅ 已處理
       </label>
       <button class="btn" id="exportCsv">匯出 CSV</button>
-      <button class="btn secondary" id="clearChecks">清除本機 ✅ 記錄</button>
+      <button class=\"btn secondary\" id=\"clearChecks\">清除本機 ✅ / 名稱 / 備註 / 日期</button>
     </div>
 
     <div class="card">
@@ -88,270 +86,255 @@
       </table>
     </div>
 
-    <footer>提示：✔️ 切換 Status 會儲存於瀏覽器 <span class="badge">localStorage</span>，不會上傳資料。</footer>
+    <footer>提示：✔️ 名稱、備註、勾選、匯出都只儲存於瀏覽器 <span class="badge">localStorage</span>。</footer>
   </div>
 
 <script>
-// ---- Data --------------------------------------------------------------
-let rows = [
-  { name: "康傑中英文幼稚園", date: "2025年6月9日至2025年9月15日下午5時正", note: "", checked: true },
-  { name: "綠楊幼稚園暨幼兒園", date: "2025年9月13日至9月20日（郵寄）", note: "", checked: false },
-  { name: "心怡天地國際幼兒園暨幼稚", date: "2025年8月至10月12日（郵寄）", note: "14/8✅", checked: true },
-  { name: "維多利亞（海之戀）國際幼兒園", date: "2025年9月15日至2025年12月15日（星期一）下午5時", note: "", checked: false },
-  { name: "青衣學之園", date: "將於2026年1月公佈", note: "", checked: false },
-  { name: "九龍塘迦南", date: "2025年9月15日至10月19日", note: "", checked: false },
-  { name: "迦南幼稚園（海濱花園）", date: "2025年9月15日至10月19日", note: "", checked: false },
-  { name: "St Catherine 國際英文幼稚園", date: "", note: "", checked: false },
-  { name: "德萃", date: "", note: "4/9✅", checked: true },
-  { name: "明慧國際幼稚園", date: "", note: "12/8✅", checked: true },
-  { name: "卓思英文學校暨幼稚園", date: "2025年10月27日至11月1日", note: "", checked: false },
-  { name: "劍鳴幼稚園", date: "2026年1月7日上午9時至1月14日下午5時", note: "", checked: false },
-  { name: "雅士圖國際幼稚園", date: "", note: "3/9✅", checked: true },
-  { name: "啟思幼稚園（青衣）", date: "", note: "", checked: false },
+/* ------------------------------- Data --------------------------------- */
+const rows = [
+  { id: 0, name: "康傑中英文幼稚園", date: "2025年6月9日至2025年9月15日下午5時正", note: "", checked: true },
+  { id: 1, name: "綠楊幼稚園暨幼兒園", date: "2025年9月13日至9月20日（郵寄）", note: "", checked: false },
+  { id: 2, name: "心怡天地國際幼兒園暨幼稚", date: "2025年8月至10月12日（郵寄）", note: "14/8✅", checked: true },
+  { id: 3, name: "維多利亞（海之戀）國際幼兒園", date: "2025年9月15日至2025年12月15日（星期一）下午5時", note: "", checked: false },
+  { id: 4, name: "青衣學之園", date: "將於2026年1月公佈", note: "", checked: false },
+  { id: 5, name: "九龍塘迦南", date: "2025年9月15日至10月19日", note: "", checked: false },
+  { id: 6, name: "迦南幼稚園（海濱花園）", date: "2025年9月15日至10月19日", note: "", checked: false },
+  { id: 7, name: "St Catherine 國際英文幼稚園", date: "", note: "", checked: false },
+  { id: 8, name: "德萃", date: "", note: "4/9✅", checked: true },
+  { id: 9, name: "明慧國際幼稚園", date: "", note: "12/8✅", checked: true },
+  { id:10, name: "卓思英文學校暨幼稚園", date: "2025年10月27日至11月1日", note: "", checked: false },
+  { id:11, name: "劍鳴幼稚園", date: "2026年1月7日上午9時至1月14日下午5時", note: "", checked: false },
+  { id:12, name: "雅士圖國際幼稚園", date: "", note: "3/9✅", checked: true },
+  { id:13, name: "啟思幼稚園（青衣）", date: "", note: "", checked: false },
 ];
 
-// ---- Persistence ------------------------------------------------------
-const KEY = "kinder-index:v1";
-function loadState(){ return JSON.parse(localStorage.getItem(KEY)||"{}") }
-function saveState(state){ localStorage.setItem(KEY, JSON.stringify(state)) }
-let state = loadState();
+/* --------------------------- LocalStorage ------------------------------ */
+// 狀態、名稱、備註分開儲存，以穩定 ID 為鍵
+const STATUS_KEY = "kinder-status:v1";
+const NAMES_KEY  = "kinder-names:v1";
+const NOTES_KEY  = "kinder-notes:v1";
+const DATES_KEY  = "kinder-dates:v1";
 
-// ---- Render ------------------------------------------------------------
-const tbody = document.querySelector('#tbl tbody');
-function render(){
-  tbody.innerHTML='';
-  const q=document.querySelector('#q').value.trim().toLowerCase();
-  const onlyChecked=document.querySelector('#onlyChecked').checked;
+const savedStatus = JSON.parse(localStorage.getItem(STATUS_KEY) || "{}");
+const savedNames  = JSON.parse(localStorage.getItem(NAMES_KEY)  || "{}");
+const savedNotes  = JSON.parse(localStorage.getItem(NOTES_KEY)  || "{}");
+const savedDates  = JSON.parse(localStorage.getItem(DATES_KEY)  || "{}");
 
-  rows.forEach((r,i)=>{
-    const rowState=state[r.name]||{checked:r.checked,note:r.note||''};
-    if(q && !(r.name+ (r.date||'')+ (rowState.note||'')).toLowerCase().includes(q)) return;
-    if(onlyChecked && !rowState.checked) return;
+const getStatus = (id, fallback)=> (id in savedStatus) ? savedStatus[id] : fallback;
+const setStatus = (id, val)=>{ savedStatus[id] = !!val; localStorage.setItem(STATUS_KEY, JSON.stringify(savedStatus)); };
 
-    const tr=document.createElement('tr');
+const getName = (id, fallback)=> savedNames[id] ?? fallback;
+const setName = (id, val)=>{ savedNames[id] = (val||""); localStorage.setItem(NAMES_KEY, JSON.stringify(savedNames)); };
 
-    // name + note
-    const td1=document.createElement('td');
-    const noteDiv=document.createElement('div');
-    noteDiv.className='note';
-    noteDiv.innerHTML='備註：<span class="note-text">'+(rowState.note||'')+'</span>';
-    const editBtn=document.createElement('button');
-    editBtn.textContent='✏️ 編輯備註';
-    editBtn.className='icon-btn';
-    editBtn.onclick=()=>{
-      const val=prompt('輸入備註', rowState.note||'');
-      if(val!==null){ rowState.note=val; state[r.name]=rowState; saveState(state); render();
+const getNote = (id, fallback)=> savedNotes[id] ?? (fallback||"");
+const setNote = (id, val)=>{ savedNotes[id] = (val||""); localStorage.setItem(NOTES_KEY, JSON.stringify(savedNotes)); };
 
-// === 以香港時間比較並套用 14/7/3/今日/過期 分級高亮 ===
+const getDate = (id, fallback)=> savedDates[id] ?? (fallback||"");
+const setDate = (id, val)=>{ savedDates[id] = (val||""); localStorage.setItem(DATES_KEY, JSON.stringify(savedDates)); };
+
+function clearSaved(){
+  localStorage.removeItem(STATUS_KEY);
+  localStorage.removeItem(NAMES_KEY);
+  localStorage.removeItem(NOTES_KEY);
+  localStorage.removeItem(DATES_KEY);
+  location.reload();
+}
+
+/* ------------------------- Hong Kong Clock ---------------------------- */
+function tickHK(){
+  const fmt = new Intl.DateTimeFormat('zh-Hant-HK', {
+    timeZone:'Asia/Hong_Kong', hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit'
+  });
+  document.getElementById('hkTime').textContent = fmt.format(new Date());
+}
+setInterval(tickHK, 1000); tickHK();
+
+/* --------------------- Date Parsing & Highlight ----------------------- */
+function parseRange(text){
+  if(!text) return null;
+  const t = String(text).replace(/（/g,'(').replace(/）/g,')');
+  if(t.includes('至')){
+    const [L,R] = t.split('至');
+    const ly = (L.match(/(\d{4})年/)||[])[1] || new Date().getFullYear();
+    const s = partToDate(L, ly);
+    let   e = partToDate(R, ly);
+    if(s && e && e < s) e = new Date(s.getFullYear()+1, e.getMonth(), e.getDate());
+    return (s && e) ? {start:s, end:e} : null;
+  }
+  const m = t.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  if(m){ const dt = new Date(+m[1], +m[2]-1, +m[3]); return {start:dt, end:dt}; }
+  return null;
+}
+function partToDate(part, fallbackYear){
+  const y = (part.match(/(\d{4})年/)||[])[1] || fallbackYear || new Date().getFullYear();
+  const m = (part.match(/(\d{1,2})月/)||[])[1];
+  const d = (part.match(/(\d{1,2})日/)||[])[1];
+  if(!m||!d) return null;
+  return new Date(+y, +m-1, +d);
+}
 function hkToday(){
-  // 取香港當地的「今天」日期（去時分秒）
   const nowHK = new Date(new Date().toLocaleString('en-US', { timeZone:'Asia/Hong_Kong' }));
   return new Date(nowHK.getFullYear(), nowHK.getMonth(), nowHK.getDate());
+}
+function inRangeToday(range){
+  if(!range) return false;
+  const today = hkToday();
+  const s = new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate());
+  const e = new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate());
+  return today >= s && today <= e;
+}
+function parseTimePart(str){
+  const m = str.match(/(上午|下午)?\s*(\d{1,2})\s*時/);
+  if(!m) return 17;
+  let h = +m[2]; if(m[1]==='下午' && h<12) h+=12; if(m[1]==='上午' && h===12) h=0; return h;
+}
+function parseDeadline(text){
+  if(!text) return null;
+  const res = [];
+  const hour = parseTimePart(text);
+  const now = new Date();
+
+  [...text.matchAll(/(\d{4})年(\d{1,2})月(\d{1,2})日/g)]
+    .forEach(m => res.push(new Date(+m[1], +m[2]-1, +m[3], hour)));
+  [...text.matchAll(/(\d{1,2})月(\d{1,2})日/g)]
+    .forEach(m => {
+      let y = now.getFullYear();
+      let dt = new Date(y, +m[1]-1, +m[2], hour);
+      if(dt < now) dt = new Date(y+1, +m[1]-1, +m[2], hour);
+      res.push(dt);
+    });
+  [...text.matchAll(/\b(\d{1,2})\/(\d{1,2})\b/g)]
+    .forEach(m => res.push(new Date(now.getFullYear(), +m[2]-1, +m[1], 17)));
+
+  if(!res.length) return null;
+  res.sort((a,b)=>a-b);
+  return res[res.length-1];
 }
 function classifyTier(dt){
   if(!dt) return {cls:'', label:''};
   const today = hkToday();
   const end = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-  const diffDays = Math.ceil((end - today) / 86400000); // 以日為單位
-  if(diffDays < 0) return {cls:'due-over', label:'已過期'};
+  const diffDays = Math.ceil((end - today) / 86400000);
+  if(diffDays < 0)  return {cls:'due-over',  label:'已過期'};
   if(diffDays === 0) return {cls:'due-today', label:'今日截止'};
-  if(diffDays <= 3) return {cls:'due-3', label:`${diffDays}日內截止`};
-  if(diffDays <= 7) return {cls:'due-7', label:`${diffDays}日內截止`};
-  if(diffDays <= 14) return {cls:'due-14', label:`${diffDays}日內截止`};
+  if(diffDays <= 3)  return {cls:'due-3',     label:`${diffDays}日內截止`};
+  if(diffDays <= 7)  return {cls:'due-7',     label:`${diffDays}日內截止`};
+  if(diffDays <= 14) return {cls:'due-14',    label:`${diffDays}日內截止`};
   return {cls:'', label:''};
 }
-function applyDeadlineTiers(){
-  const rows = document.querySelectorAll('#tbl tbody tr');
-  rows.forEach(tr=>{
-    const cell = tr.children[1]; // 日期欄
-    if(!cell) return;
-    const dateText = (cell.textContent||'').trim();
-    const noteText = (tr.querySelector('.note')?.textContent||'').trim();
-    const combined = `${dateText} ${noteText}`;
 
-    // 先清除舊 class
-    cell.classList.remove('tier','due-14','due-7','due-3','due-today','due-over');
-    cell.removeAttribute('data-due-label');
+/* ------------------------------- Render -------------------------------- */
+const tbody = document.querySelector('#tbl tbody');
 
-    // 先嘗試用 parseDeadline 判斷截止日
-    let deadline = null;
-    if(typeof parseDeadline === 'function'){
-      deadline = parseDeadline(combined);
-    }
-    if(deadline){
-      const {cls,label} = classifyTier(deadline);
-      if(cls){ cell.classList.add('tier', cls); cell.setAttribute('data-due-label', label); return; }
-    }
+function render(){
+  const q = document.querySelector('#q').value.trim().toLowerCase();
+  const onlyChecked = document.querySelector('#onlyChecked').checked;
+  tbody.innerHTML = '';
 
-    // 若沒有截止日，退而判斷是否「接受期內」
-    if(typeof parseRange === 'function' && typeof inRangeToday === 'function'){
-      const range = parseRange(dateText);
-      if(inRangeToday(range)){
-        cell.classList.add('tier','due-today');
-        cell.setAttribute('data-due-label','接受期內');
-      }
-    }
-  });
-}
+  rows.forEach(r => {
+    const id = r.id;
+    const displayName = getName(id, r.name);
+    const displayNote = getNote(id, r.note || "");
+    const displayDate = getDate(id, r.date || "");
+    const isChecked = getStatus(id, r.checked);
 
-applyDeadlineTiers();
+    const textBlob = (displayName + ' ' + (r.date||'') + ' ' + displayNote).toLowerCase();
+    if(q && !textBlob.includes(q)) return;
+    if(onlyChecked && !isChecked) return;
 
-// 若表格內容變動（搜尋/重繪/編輯），自動重新套用
-new MutationObserver(()=>{ applyDeadlineTiers(); })
-  .observe(document.querySelector('#tbl tbody'), { childList:true, subtree:false });
+    const tr = document.createElement('tr');
 
-// === 即時編輯 & 香港時間比較高亮 ===
-const DATA_KEY = 'kinder-data:v1';
-const getStore = () => JSON.parse(localStorage.getItem(DATA_KEY) || '{}');
-const setStore = (obj) => localStorage.setItem(DATA_KEY, JSON.stringify(obj));
+    // col 1: 名稱（可編輯） + 備註（可編輯）
+    const td1 = document.createElement('td');
+    td1.innerHTML = `
+      <div class="name" data-id="${id}" contenteditable="true" spellcheck="false" title="點擊可改名">${displayName}</div>
+      <div class="note">備註：<span class="note-text" data-id="${id}" contenteditable="true" spellcheck="false" title="點擊可編輯備註">${displayNote}</span></div>
+    `;
 
-function enableEditing(){
-  const data = getStore();
-  document.querySelectorAll('#tbl tbody tr').forEach(tr=>{
-    const name = tr.querySelector('.name')?.textContent.trim() || '';
-    // 備註欄位（若沒有就建立一個）
-    let noteDiv = tr.querySelector('.note');
-    if(!noteDiv){ noteDiv = document.createElement('div'); noteDiv.className='note'; noteDiv.textContent='備註：'; tr.children[0].appendChild(noteDiv); }
-    noteDiv.contentEditable = 'true';
-    noteDiv.addEventListener('blur', ()=>{
-      const store = getStore();
-      store[name] = store[name] || {};
-      store[name].note = noteDiv.textContent.replace(/^備註：/,'').trim();
-      setStore(store);
-      highlightWithinRows();
+    // 名稱編輯 → 存回 localStorage
+    const nameEl = td1.querySelector('.name');
+    nameEl.addEventListener('blur', ()=>{
+      const newName = (nameEl.textContent || '').trim() || r.name;
+      setName(id, newName);
+      render();
     });
 
-    // 日期欄位可編輯
-    const dateCell = tr.children[1];
-    if(dateCell){
-      dateCell.contentEditable = 'true';
-      dateCell.addEventListener('blur', ()=>{
-        const store = getStore();
-        store[name] = store[name] || {};
-        store[name].date = dateCell.textContent.trim();
-        setStore(store);
-        highlightWithinRows();
-      });
+    // 備註編輯 → 存回 localStorage
+    const noteEl = td1.querySelector('.note-text');
+    noteEl.addEventListener('blur', ()=>{
+      const newNote = (noteEl.textContent || '').trim();
+      setNote(id, newNote);
+      render();
+    });
+
+    // col 2: 日期（含高亮）
+    const td2 = document.createElement('td');
+    const combinedForDeadline = (r.date||'') + ' ' + displayNote; // 備註也可能含日期
+    const deadline = parseDeadline(combinedForDeadline);
+    const {cls,label} = classifyTier(deadline);
+    if(cls){ td2.classList.add('tier', cls); td2.setAttribute('data-due-label', label); }
+    const range = parseRange(r.date);
+    if(inRangeToday(range)){
+      td2.classList.remove('tier','due-14','due-7','due-3','due-today','due-over');
+      td2.removeAttribute('data-due-label');
+      td2.classList.add('within');
     }
+    td2.textContent = r.date || '—';
 
-    // 載入已儲存資料
-    const s = data[name];
-    if(s){
-      if(s.note !== undefined) noteDiv.textContent = '備註：' + s.note;
-      if(s.date && dateCell) dateCell.textContent = s.date;
-    }
-  });
-}
-
-function highlightWithinRows(){
-  document.querySelectorAll('#tbl tbody tr').forEach(tr=>{
-    const dateText = (tr.children[1]?.textContent || '').trim();
-    const noteText = (tr.querySelector('.note')?.textContent || '').trim();
-    const combined = dateText + ' ' + noteText; // 同時考慮備註中的日期
-    const range = parseRange(combined);
-    const cell = tr.children[1];
-    if(!cell) return;
-    cell.classList.remove('within');
-    if(inRangeToday(range)) cell.classList.add('within');
-  });
-}
-
-// 首次套用
-enableEditing();
-highlightWithinRows();
-// 內容改變（例如搜尋或重繪）後再次套用
-new MutationObserver(()=>{ enableEditing(); highlightWithinRows(); })
-  .observe(document.querySelector('#tbl tbody'), { childList:true }); }
-    };
-    td1.innerHTML='<div class="name">'+r.name+'</div>';
-    td1.appendChild(noteDiv); td1.appendChild(editBtn);
-
-    // date + highlight
-    const td2=document.createElement('td');
-    td2.textContent=r.date||'—';
-    if(r.date){
-      const range=parseRange(r.date);
-      if(inRangeToday(range)) td2.classList.add('within');
-    }
-
-    // status
-    const td3=document.createElement('td');
-    const label=document.createElement('label');
-    label.className='status-pill '+(rowState.checked?'status-ok':'status-empty');
-    const chk=document.createElement('input');
-    chk.type='checkbox'; chk.className='check'; chk.checked=rowState.checked;
-    chk.onchange=(e)=>{ rowState.checked=e.target.checked; state[r.name]=rowState; saveState(state); render(); };
-    const text=document.createElement('span');
-    text.textContent=rowState.checked?'✅ 已處理':'待處理';
-    label.appendChild(chk); label.appendChild(text);
-    td3.appendChild(label);
+    // col 3: 勾選狀態
+    const td3 = document.createElement('td');
+    const labelEl = document.createElement('label');
+    labelEl.className = 'status-pill ' + (isChecked ? 'status-ok' : 'status-empty');
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.className = 'check'; chk.checked = isChecked;
+    chk.addEventListener('change', e => {
+      setStatus(id, e.target.checked);
+      labelEl.className = 'status-pill ' + (e.target.checked ? 'status-ok' : 'status-empty');
+      textNode.textContent = e.target.checked ? '✅ 已處理' : '待處理';
+    });
+    const textNode = document.createElement('span');
+    textNode.textContent = isChecked ? '✅ 已處理' : '待處理';
+    labelEl.appendChild(chk); labelEl.appendChild(textNode);
+    td3.appendChild(labelEl);
 
     tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
     tbody.appendChild(tr);
   });
 }
 
-// ---- Date Range Helper ------------------------------------------------
-function digitsOnly(s){return s.replace(/[^0-9]/g,'')}
-function readDate(part, fallbackYear){
-  const yMatch=part.match(/(\d{4})年/);
-  const mMatch=part.match(/(\d{1,2})月/);
-  const dMatch=part.match(/(\d{1,2})日/);
-  if(!mMatch||!dMatch) return null;
-  const y=yMatch?+yMatch[1]:fallbackYear||new Date().getFullYear();
-  return new Date(y,(+mMatch[1])-1,+dMatch[1]);
-}
-function parseRange(text){
-  if(!text) return null; const parts=text.split('至');
-  if(parts.length===2){
-    const s=readDate(parts[0]);
-    const e=readDate(parts[1], s?s.getFullYear():undefined);
-    return s&&e?{start:s,end:e}:null;
-  }
-  return null;
-}
-function inRangeToday(range){
-  if(!range) return false;
-  const now=new Date(); const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  return today>=range.start && today<=range.end;
-}
+render();
 
-// ---- Controls ----------------------------------------------------------
+/* ------------------------------ Controls ------------------------------- */
 document.querySelector('#q').addEventListener('input', render);
 document.querySelector('#onlyChecked').addEventListener('change', render);
-document.querySelector('#clearChecks').addEventListener('click',()=>{state={}; saveState(state); render();});
+document.querySelector('#clearChecks').addEventListener('click', clearSaved);
 
-document.getElementById('updated').textContent=new Date().toLocaleString();
+document.getElementById('updated').textContent = new Date().toLocaleString();
 
-// ---- HK Clock ----------------------------------------------------------
-function updateClock(){
-  const now=new Date().toLocaleString('zh-Hant',{timeZone:'Asia/Hong_Kong'});
-  document.getElementById('hkclock').textContent=now;
-}
-setInterval(updateClock,1000); updateClock();
-
-// ---- Export CSV --------------------------------------------------------
+/* ------------------------------- Export -------------------------------- */
 function exportCsv(){
-  const headers=['幼稚園','接受申請日期 / 備註','Status'];
-  const visible=Array.from(tbody.querySelectorAll('tr')).map(tr=>{
-    const tds=tr.querySelectorAll('td');
-    const name=tds[0].querySelector('.name').textContent.trim();
-    const note=tds[0].querySelector('.note-text').textContent.trim();
-    const date=tds[1].textContent.trim();
-    const status=tds[2].querySelector('input').checked?'已處理':'待處理';
-    return [name,(date||'')+(note?` | 備註:${note}`:''),status];
+  const headers = ['幼稚園','接受申請日期 / 備註','Status'];
+  const visible = Array.from(tbody.querySelectorAll('tr')).map(tr => {
+    const tds = tr.querySelectorAll('td');
+    const name = tds[0].querySelector('.name').textContent.trim();
+    const note = (tds[0].querySelector('.note-text')?.textContent || '').trim();
+    const date = tds[1].textContent.trim();
+    const status = tds[2].querySelector('input').checked ? '已處理' : '待處理';
+    return [name, (date || '') + (note? ` | 備註:${note}`:''), status];
   });
-  const lines=[headers,...visible].map(r=>r.map(x=>'"'+x.replace(/"/g,'""')+'"').join(',')).join('\n');
-  const blob=new Blob([lines],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='幼稚園申請追蹤.csv';
+  const lines = [headers, ...visible]
+    .map(row => row.map(x => '"' + (x || '').replaceAll('"','""') + '"').join(','))
+    .join('\n');
+  const blob = new Blob([lines], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '幼稚園申請追蹤.csv';
   a.click();
 }
-document.getElementById('exportCsv').addEventListener('click',exportCsv);
 
-// initial render
-render();
+document.getElementById('exportCsv').addEventListener('click', exportCsv);
 </script>
 </body>
 </html>
