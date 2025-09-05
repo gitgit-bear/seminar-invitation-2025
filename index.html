@@ -10,7 +10,7 @@
     html,body{height:100%}
     body{margin:0;background:linear-gradient(180deg,#0b1020,#0b1428);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
     .wrap{max-width:1100px;margin:24px auto;padding:24px}
-    .header{display:flex;gap:16px;align-items:end;flex-wrap:wrap}
+    .header{display:flex;gap:16px;align-items:end;flex-wrap:wrap;justify-content:space-between}
     h1{margin:0;font-size:clamp(22px,3.2vw,32px);letter-spacing:.3px}
     .muted{color:var(--muted)}
     .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
@@ -28,30 +28,40 @@
     .status-ok{background:rgba(39,192,132,.15);border-color:rgba(39,192,132,.35)}
     .status-empty{background:rgba(138,160,185,.08)}
     .check{accent-color:var(--ok);width:18px;height:18px}
+    .hint{font-size:12px}
     .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
     .note{color:var(--muted);font-size:13px}
     footer{margin:18px 0;color:var(--muted);font-size:13px}
 
-    /* === Deadline highlights === */
-    .due{position:relative}
-    .due::after{content:attr(data-due-label);margin-left:8px;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+    /* highlight */
+    .within{background:rgba(77,163,255,.2)}
     .due-over{background:rgba(255,106,106,.16)}
-    .due-over::after{background:rgba(255,106,106,.35);color:#330202}
+    .due-today{background:rgba(77,163,255,.18)}
+    .due-soon{background:rgba(255,200,87,.12)}
+  
+    /* === 分級提醒（14 / 7 / 3 天 / 今日 / 已過期） === */
+    .tier{position:relative}
+    .tier::after{content:attr(data-due-label);margin-left:8px;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+    .due-14{background:rgba(255,200,87,.12)}
+    .due-14::after{background:rgba(255,200,87,.25);color:#2b1e00}
+    .due-7{background:rgba(255,160,60,.14)}
+    .due-7::after{background:rgba(255,160,60,.33);color:#2b1200}
+    .due-3{background:rgba(255,106,106,.16)}
+    .due-3::after{background:rgba(255,106,106,.35);color:#330202}
     .due-today{background:rgba(77,163,255,.18)}
     .due-today::after{background:rgba(77,163,255,.35);color:#001933}
-    .due-soon{background:rgba(255,200,87,.12)}
-    .due-soon::after{background:rgba(255,200,87,.25);color:#2b1e00}
-
-    .note-actions{display:inline-flex;gap:6px;margin-left:6px}
-    .icon-btn{cursor:pointer;border:1px solid var(--line);background:transparent;border-radius:8px;padding:2px 6px;font-size:12px;color:var(--muted)}
-    .icon-btn:hover{border-color:var(--accent);color:var(--text)}
+    .due-over{background:rgba(180,60,60,.18)}
+    .due-over::after{background:rgba(180,60,60,.38);color:#2b0000}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="header">
       <h1>幼稚園申請追蹤表 <span class="muted">(Kindergarten Application Index)</span></h1>
-      <span class="badge">最後更新：<span id="updated"></span></span>
+      <div>
+        <span class="badge">香港時間 (GMT+8)：<span id="hkclock"></span></span>
+        <span class="badge">最後更新：<span id="updated"></span></span>
+      </div>
     </div>
 
     <div class="controls">
@@ -83,7 +93,7 @@
 
 <script>
 // ---- Data --------------------------------------------------------------
-const rows = [
+let rows = [
   { name: "康傑中英文幼稚園", date: "2025年6月9日至2025年9月15日下午5時正", note: "", checked: true },
   { name: "綠楊幼稚園暨幼兒園", date: "2025年9月13日至9月20日（郵寄）", note: "", checked: false },
   { name: "心怡天地國際幼兒園暨幼稚", date: "2025年8月至10月12日（郵寄）", note: "14/8✅", checked: true },
@@ -100,140 +110,179 @@ const rows = [
   { name: "啟思幼稚園（青衣）", date: "", note: "", checked: false },
 ];
 
-// ---- Deadline parsing (中文日期 + 備註中的 dd/mm) -------------------------
-const SOON_DAYS = 7;      // 7日內
-const TODAY_HOURS = 24;   // 24小時內
-
-function parseTimePart(str){
-  // 上午9時 / 下午5時正
-  const m = str.match(/(上午|下午)?\s*(\d{1,2})\s*時/);
-  if(!m) return 17;
-  let h = Number(m[2]);
-  if(m[1]==='下午' && h<12) h += 12;
-  if(m[1]==='上午' && h===12) h = 0;
-  return h;
-}
-
-function parseDeadline(text){
-  // 從「接受申請日期」或「備註」裡抓最後一個日期當截止
-  if(!text) return null;
-  const results = [];
-  const hour = parseTimePart(text);
-
-  // 完整 YYYY年M月D日
-  [...text.matchAll(/(\d{4})年(\d{1,2})月(\d{1,2})日/g)]
-    .forEach(m => results.push(new Date(+m[1], +m[2]-1, +m[3], hour)));
-
-  // 只有 M月D日（推定今年；若已過則明年）
-  const now = new Date();
-  [...text.matchAll(/(\d{1,2})月(\d{1,2})日/g)]
-    .forEach(m => {
-      let y = now.getFullYear();
-      let dt = new Date(y, +m[1]-1, +m[2], hour);
-      if(dt < now) dt = new Date(y+1, +m[1]-1, +m[2], hour);
-      results.push(dt);
-    });
-
-  // 備註中的 4/9, 12/8（dd/mm）
-  [...text.matchAll(/\b(\d{1,2})\/(\d{1,2})\b/g)]
-    .forEach(m => {
-      const d = +m[1], mm = +m[2];
-      const y = now.getFullYear();
-      results.push(new Date(y, mm-1, d, 17));
-    });
-
-  if(!results.length) return null;
-  results.sort((a,b)=>a-b);
-  return results[results.length-1]; // 取最後一個（通常是截止）
-}
-
-function deadlineClass(dt){
-  if(!dt) return {cls:'', label:''};
-  const now = new Date();
-  const diffMs = dt - now;
-  const diffHours = diffMs / 36e5;
-  const diffDays = diffMs / 864e5;
-  if(diffHours <= 0) return {cls:'due-over',  label:'已過期'};
-  if(diffHours <= TODAY_HOURS) return {cls:'due-today', label:'今日截止'};
-  if(diffDays  <= SOON_DAYS)  return {cls:'due-soon',  label:`${Math.ceil(diffDays)}日內截止`};
-  return {cls:'', label:''};
-}
-
-// ---- Persistence (狀態 + 備註) -----------------------------------------
-const KEY = "kinder-index:v1";         // 勾選狀態
-const NOTES_KEY = "kinder-notes:v1";   // 自訂備註
-const saved = JSON.parse(localStorage.getItem(KEY) || "{}");
-const savedNotes = JSON.parse(localStorage.getItem(NOTES_KEY) || "{}");
-const getSaved = (name)=> saved[name];
-const setSaved = (name,val)=>{ saved[name]=!!val; localStorage.setItem(KEY, JSON.stringify(saved)); };
-const getNote  = (name, fallback)=> savedNotes[name] ?? fallback ?? "";
-const setNote  = (name,val)=>{ savedNotes[name]=val||""; localStorage.setItem(NOTES_KEY, JSON.stringify(savedNotes)); };
-const clearSaved = ()=>{ localStorage.removeItem(KEY); localStorage.removeItem(NOTES_KEY); location.reload(); };
+// ---- Persistence ------------------------------------------------------
+const KEY = "kinder-index:v1";
+function loadState(){ return JSON.parse(localStorage.getItem(KEY)||"{}") }
+function saveState(state){ localStorage.setItem(KEY, JSON.stringify(state)) }
+let state = loadState();
 
 // ---- Render ------------------------------------------------------------
 const tbody = document.querySelector('#tbl tbody');
 function render(){
-  const q = document.querySelector('#q').value.trim().toLowerCase();
-  const onlyChecked = document.querySelector('#onlyChecked').checked;
-  tbody.innerHTML = '';
+  tbody.innerHTML='';
+  const q=document.querySelector('#q').value.trim().toLowerCase();
+  const onlyChecked=document.querySelector('#onlyChecked').checked;
 
-  rows.forEach(r => {
-    const persisted = getSaved(r.name);
-    const isChecked = typeof persisted === 'boolean' ? persisted : r.checked;
+  rows.forEach((r,i)=>{
+    const rowState=state[r.name]||{checked:r.checked,note:r.note||''};
+    if(q && !(r.name+ (r.date||'')+ (rowState.note||'')).toLowerCase().includes(q)) return;
+    if(onlyChecked && !rowState.checked) return;
 
-    const userNote = getNote(r.name, r.note);
-    const textBlob = (r.name + ' ' + (r.date||'') + ' ' + (userNote||'')).toLowerCase();
-    if(q && !textBlob.includes(q)) return;
-    if(onlyChecked && !isChecked) return;
+    const tr=document.createElement('tr');
 
-    const tr = document.createElement('tr');
+    // name + note
+    const td1=document.createElement('td');
+    const noteDiv=document.createElement('div');
+    noteDiv.className='note';
+    noteDiv.innerHTML='備註：<span class="note-text">'+(rowState.note||'')+'</span>';
+    const editBtn=document.createElement('button');
+    editBtn.textContent='✏️ 編輯備註';
+    editBtn.className='icon-btn';
+    editBtn.onclick=()=>{
+      const val=prompt('輸入備註', rowState.note||'');
+      if(val!==null){ rowState.note=val; state[r.name]=rowState; saveState(state); render();
 
-    // col 1: name + note (+ edit)
-    const td1 = document.createElement('td');
-    const noteHtml = userNote ? `<div class="note">備註：<span class="note-text">${userNote}</span></div>` : `<div class="note">備註：<span class="note-text"></span></div>`;
-    td1.innerHTML = `<div class="name">${r.name}</div>${noteHtml}`;
-    const actions = document.createElement('div');
-    actions.className = 'note-actions';
-    const btnEdit = document.createElement('button');
-    btnEdit.className = 'icon-btn';
-    btnEdit.textContent = '✏️ 編輯備註';
-    btnEdit.addEventListener('click', ()=>{
-      const current = getNote(r.name, r.note);
-      const val = prompt('輸入備註（支援 4/9 這類日期，會一起判斷截止）', current || '');
-      if(val === null) return;
-      setNote(r.name, val);
-      render();
-    });
-    actions.appendChild(btnEdit);
-    td1.appendChild(actions);
+// === 以香港時間比較並套用 14/7/3/今日/過期 分級高亮 ===
+function hkToday(){
+  // 取香港當地的「今天」日期（去時分秒）
+  const nowHK = new Date(new Date().toLocaleString('en-US', { timeZone:'Asia/Hong_Kong' }));
+  return new Date(nowHK.getFullYear(), nowHK.getMonth(), nowHK.getDate());
+}
+function classifyTier(dt){
+  if(!dt) return {cls:'', label:''};
+  const today = hkToday();
+  const end = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const diffDays = Math.ceil((end - today) / 86400000); // 以日為單位
+  if(diffDays < 0) return {cls:'due-over', label:'已過期'};
+  if(diffDays === 0) return {cls:'due-today', label:'今日截止'};
+  if(diffDays <= 3) return {cls:'due-3', label:`${diffDays}日內截止`};
+  if(diffDays <= 7) return {cls:'due-7', label:`${diffDays}日內截止`};
+  if(diffDays <= 14) return {cls:'due-14', label:`${diffDays}日內截止`};
+  return {cls:'', label:''};
+}
+function applyDeadlineTiers(){
+  const rows = document.querySelectorAll('#tbl tbody tr');
+  rows.forEach(tr=>{
+    const cell = tr.children[1]; // 日期欄
+    if(!cell) return;
+    const dateText = (cell.textContent||'').trim();
+    const noteText = (tr.querySelector('.note')?.textContent||'').trim();
+    const combined = `${dateText} ${noteText}`;
 
-    // col 2: date + highlight
-    const td2 = document.createElement('td');
-    if(r.date || userNote){
-      const deadline = parseDeadline((r.date||'') + ' ' + (userNote||''));
-      const {cls,label} = deadlineClass(deadline);
-      td2.className = cls ? `due ${cls}` : '';
-      if(cls) td2.setAttribute('data-due-label', label);
-      td2.textContent = r.date || '—';
-    }else{
-      td2.innerHTML = '<span class="muted">—</span>';
+    // 先清除舊 class
+    cell.classList.remove('tier','due-14','due-7','due-3','due-today','due-over');
+    cell.removeAttribute('data-due-label');
+
+    // 先嘗試用 parseDeadline 判斷截止日
+    let deadline = null;
+    if(typeof parseDeadline === 'function'){
+      deadline = parseDeadline(combined);
+    }
+    if(deadline){
+      const {cls,label} = classifyTier(deadline);
+      if(cls){ cell.classList.add('tier', cls); cell.setAttribute('data-due-label', label); return; }
     }
 
-    // col 3: status
-    const td3 = document.createElement('td');
-    const label = document.createElement('label');
-    label.className = 'status-pill ' + (isChecked ? 'status-ok' : 'status-empty');
-    const chk = document.createElement('input');
-    chk.type = 'checkbox';
-    chk.className = 'check';
-    chk.checked = isChecked;
-    chk.addEventListener('change', e => {
-      setSaved(r.name, e.target.checked);
-      label.className = 'status-pill ' + (e.target.checked ? 'status-ok' : 'status-empty');
-      text.textContent = e.target.checked ? '✅ 已處理' : '待處理';
+    // 若沒有截止日，退而判斷是否「接受期內」
+    if(typeof parseRange === 'function' && typeof inRangeToday === 'function'){
+      const range = parseRange(dateText);
+      if(inRangeToday(range)){
+        cell.classList.add('tier','due-today');
+        cell.setAttribute('data-due-label','接受期內');
+      }
+    }
+  });
+}
+
+applyDeadlineTiers();
+
+// 若表格內容變動（搜尋/重繪/編輯），自動重新套用
+new MutationObserver(()=>{ applyDeadlineTiers(); })
+  .observe(document.querySelector('#tbl tbody'), { childList:true, subtree:false });
+
+// === 即時編輯 & 香港時間比較高亮 ===
+const DATA_KEY = 'kinder-data:v1';
+const getStore = () => JSON.parse(localStorage.getItem(DATA_KEY) || '{}');
+const setStore = (obj) => localStorage.setItem(DATA_KEY, JSON.stringify(obj));
+
+function enableEditing(){
+  const data = getStore();
+  document.querySelectorAll('#tbl tbody tr').forEach(tr=>{
+    const name = tr.querySelector('.name')?.textContent.trim() || '';
+    // 備註欄位（若沒有就建立一個）
+    let noteDiv = tr.querySelector('.note');
+    if(!noteDiv){ noteDiv = document.createElement('div'); noteDiv.className='note'; noteDiv.textContent='備註：'; tr.children[0].appendChild(noteDiv); }
+    noteDiv.contentEditable = 'true';
+    noteDiv.addEventListener('blur', ()=>{
+      const store = getStore();
+      store[name] = store[name] || {};
+      store[name].note = noteDiv.textContent.replace(/^備註：/,'').trim();
+      setStore(store);
+      highlightWithinRows();
     });
-    const text = document.createElement('span');
-    text.textContent = isChecked ? '✅ 已處理' : '待處理';
+
+    // 日期欄位可編輯
+    const dateCell = tr.children[1];
+    if(dateCell){
+      dateCell.contentEditable = 'true';
+      dateCell.addEventListener('blur', ()=>{
+        const store = getStore();
+        store[name] = store[name] || {};
+        store[name].date = dateCell.textContent.trim();
+        setStore(store);
+        highlightWithinRows();
+      });
+    }
+
+    // 載入已儲存資料
+    const s = data[name];
+    if(s){
+      if(s.note !== undefined) noteDiv.textContent = '備註：' + s.note;
+      if(s.date && dateCell) dateCell.textContent = s.date;
+    }
+  });
+}
+
+function highlightWithinRows(){
+  document.querySelectorAll('#tbl tbody tr').forEach(tr=>{
+    const dateText = (tr.children[1]?.textContent || '').trim();
+    const noteText = (tr.querySelector('.note')?.textContent || '').trim();
+    const combined = dateText + ' ' + noteText; // 同時考慮備註中的日期
+    const range = parseRange(combined);
+    const cell = tr.children[1];
+    if(!cell) return;
+    cell.classList.remove('within');
+    if(inRangeToday(range)) cell.classList.add('within');
+  });
+}
+
+// 首次套用
+enableEditing();
+highlightWithinRows();
+// 內容改變（例如搜尋或重繪）後再次套用
+new MutationObserver(()=>{ enableEditing(); highlightWithinRows(); })
+  .observe(document.querySelector('#tbl tbody'), { childList:true }); }
+    };
+    td1.innerHTML='<div class="name">'+r.name+'</div>';
+    td1.appendChild(noteDiv); td1.appendChild(editBtn);
+
+    // date + highlight
+    const td2=document.createElement('td');
+    td2.textContent=r.date||'—';
+    if(r.date){
+      const range=parseRange(r.date);
+      if(inRangeToday(range)) td2.classList.add('within');
+    }
+
+    // status
+    const td3=document.createElement('td');
+    const label=document.createElement('label');
+    label.className='status-pill '+(rowState.checked?'status-ok':'status-empty');
+    const chk=document.createElement('input');
+    chk.type='checkbox'; chk.className='check'; chk.checked=rowState.checked;
+    chk.onchange=(e)=>{ rowState.checked=e.target.checked; state[r.name]=rowState; saveState(state); render(); };
+    const text=document.createElement('span');
+    text.textContent=rowState.checked?'✅ 已處理':'待處理';
     label.appendChild(chk); label.appendChild(text);
     td3.appendChild(label);
 
@@ -242,36 +291,67 @@ function render(){
   });
 }
 
-render();
+// ---- Date Range Helper ------------------------------------------------
+function digitsOnly(s){return s.replace(/[^0-9]/g,'')}
+function readDate(part, fallbackYear){
+  const yMatch=part.match(/(\d{4})年/);
+  const mMatch=part.match(/(\d{1,2})月/);
+  const dMatch=part.match(/(\d{1,2})日/);
+  if(!mMatch||!dMatch) return null;
+  const y=yMatch?+yMatch[1]:fallbackYear||new Date().getFullYear();
+  return new Date(y,(+mMatch[1])-1,+dMatch[1]);
+}
+function parseRange(text){
+  if(!text) return null; const parts=text.split('至');
+  if(parts.length===2){
+    const s=readDate(parts[0]);
+    const e=readDate(parts[1], s?s.getFullYear():undefined);
+    return s&&e?{start:s,end:e}:null;
+  }
+  return null;
+}
+function inRangeToday(range){
+  if(!range) return false;
+  const now=new Date(); const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  return today>=range.start && today<=range.end;
+}
 
 // ---- Controls ----------------------------------------------------------
 document.querySelector('#q').addEventListener('input', render);
 document.querySelector('#onlyChecked').addEventListener('change', render);
-document.querySelector('#clearChecks').addEventListener('click', clearSaved);
+document.querySelector('#clearChecks').addEventListener('click',()=>{state={}; saveState(state); render();});
 
-document.getElementById('updated').textContent = new Date().toLocaleString();
+document.getElementById('updated').textContent=new Date().toLocaleString();
+
+// ---- HK Clock ----------------------------------------------------------
+function updateClock(){
+  const now=new Date().toLocaleString('zh-Hant',{timeZone:'Asia/Hong_Kong'});
+  document.getElementById('hkclock').textContent=now;
+}
+setInterval(updateClock,1000); updateClock();
 
 // ---- Export CSV --------------------------------------------------------
 function exportCsv(){
-  const headers = ['幼稚園','接受申請日期 / 備註','Status'];
-  const visible = Array.from(tbody.querySelectorAll('tr')).map(tr => {
-    const tds = tr.querySelectorAll('td');
-    const name = tds[0].querySelector('.name').textContent.trim();
-    const note = (tds[0].querySelector('.note-text')?.textContent || '').trim();
-    const date = tds[1].textContent.trim();
-    const status = tds[2].querySelector('input').checked ? '已處理' : '待處理';
-    return [name, (date || '') + (note? ` | 備註:${note}`:''), status];
+  const headers=['幼稚園','接受申請日期 / 備註','Status'];
+  const visible=Array.from(tbody.querySelectorAll('tr')).map(tr=>{
+    const tds=tr.querySelectorAll('td');
+    const name=tds[0].querySelector('.name').textContent.trim();
+    const note=tds[0].querySelector('.note-text').textContent.trim();
+    const date=tds[1].textContent.trim();
+    const status=tds[2].querySelector('input').checked?'已處理':'待處理';
+    return [name,(date||'')+(note?` | 備註:${note}`:''),status];
   });
-  const lines = [headers, ...visible]
-    .map(row => row.map(x => '"' + (x || '').replaceAll('"','""') + '"').join(','))
-    .join('\n');
-  const blob = new Blob([lines], {type:'text/csv;charset=utf-8;'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '幼稚園申請追蹤.csv';
+  const lines=[headers,...visible].map(r=>r.map(x=>'"'+x.replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob([lines],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='幼稚園申請追蹤.csv';
   a.click();
 }
-document.getElementById('exportCsv').addEventListener('click', exportCsv);
+document.getElementById('exportCsv').addEventListener('click',exportCsv);
+
+// initial render
+render();
 </script>
 </body>
 </html>
