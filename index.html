@@ -28,11 +28,23 @@
     .status-ok{background:rgba(39,192,132,.15);border-color:rgba(39,192,132,.35)}
     .status-empty{background:rgba(138,160,185,.08)}
     .check{accent-color:var(--ok);width:18px;height:18px}
-    .hint{font-size:12px}
     .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-    .flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .note{color:var(--muted);font-size:13px}
     footer{margin:18px 0;color:var(--muted);font-size:13px}
+
+    /* === Deadline highlights === */
+    .due{position:relative}
+    .due::after{content:attr(data-due-label);margin-left:8px;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+    .due-over{background:rgba(255,106,106,.16)}
+    .due-over::after{background:rgba(255,106,106,.35);color:#330202}
+    .due-today{background:rgba(77,163,255,.18)}
+    .due-today::after{background:rgba(77,163,255,.35);color:#001933}
+    .due-soon{background:rgba(255,200,87,.12)}
+    .due-soon::after{background:rgba(255,200,87,.25);color:#2b1e00}
+
+    .note-actions{display:inline-flex;gap:6px;margin-left:6px}
+    .icon-btn{cursor:pointer;border:1px solid var(--line);background:transparent;border-radius:8px;padding:2px 6px;font-size:12px;color:var(--muted)}
+    .icon-btn:hover{border-color:var(--accent);color:var(--text)}
   </style>
 </head>
 <body>
@@ -79,8 +91,9 @@ const rows = [
   { name: "青衣學之園", date: "將於2026年1月公佈", note: "", checked: false },
   { name: "九龍塘迦南", date: "2025年9月15日至10月19日", note: "", checked: false },
   { name: "迦南幼稚園（海濱花園）", date: "2025年9月15日至10月19日", note: "", checked: false },
+  { name: "迦南幼稚園(窩打老道)", date: "2025年9月15日至10月19日", note: "", checked: false },
   { name: "St Catherine 國際英文幼稚園", date: "", note: "", checked: false },
-  { name: "德萃", date: "", note: "4/9✅", checked: true },
+  { name: "德萃國際幼兒園", date: "", note: "4/9✅", checked: true },
   { name: "明慧國際幼稚園", date: "", note: "12/8✅", checked: true },
   { name: "卓思英文學校暨幼稚園", date: "2025年10月27日至11月1日", note: "", checked: false },
   { name: "劍鳴幼稚園", date: "2026年1月7日上午9時至1月14日下午5時", note: "", checked: false },
@@ -88,12 +101,75 @@ const rows = [
   { name: "啟思幼稚園（青衣）", date: "", note: "", checked: false },
 ];
 
-// ---- Persistence helpers ---------------------------------------------
-const KEY = "kinder-index:v1";
+// ---- Deadline parsing (中文日期 + 備註中的 dd/mm) -------------------------
+const SOON_DAYS = 7;      // 7日內
+const TODAY_HOURS = 24;   // 24小時內
+
+function parseTimePart(str){
+  // 上午9時 / 下午5時正
+  const m = str.match(/(上午|下午)?\s*(\d{1,2})\s*時/);
+  if(!m) return 17;
+  let h = Number(m[2]);
+  if(m[1]==='下午' && h<12) h += 12;
+  if(m[1]==='上午' && h===12) h = 0;
+  return h;
+}
+
+function parseDeadline(text){
+  // 從「接受申請日期」或「備註」裡抓最後一個日期當截止
+  if(!text) return null;
+  const results = [];
+  const hour = parseTimePart(text);
+
+  // 完整 YYYY年M月D日
+  [...text.matchAll(/(\d{4})年(\d{1,2})月(\d{1,2})日/g)]
+    .forEach(m => results.push(new Date(+m[1], +m[2]-1, +m[3], hour)));
+
+  // 只有 M月D日（推定今年；若已過則明年）
+  const now = new Date();
+  [...text.matchAll(/(\d{1,2})月(\d{1,2})日/g)]
+    .forEach(m => {
+      let y = now.getFullYear();
+      let dt = new Date(y, +m[1]-1, +m[2], hour);
+      if(dt < now) dt = new Date(y+1, +m[1]-1, +m[2], hour);
+      results.push(dt);
+    });
+
+  // 備註中的 4/9, 12/8（dd/mm）
+  [...text.matchAll(/\b(\d{1,2})\/(\d{1,2})\b/g)]
+    .forEach(m => {
+      const d = +m[1], mm = +m[2];
+      const y = now.getFullYear();
+      results.push(new Date(y, mm-1, d, 17));
+    });
+
+  if(!results.length) return null;
+  results.sort((a,b)=>a-b);
+  return results[results.length-1]; // 取最後一個（通常是截止）
+}
+
+function deadlineClass(dt){
+  if(!dt) return {cls:'', label:''};
+  const now = new Date();
+  const diffMs = dt - now;
+  const diffHours = diffMs / 36e5;
+  const diffDays = diffMs / 864e5;
+  if(diffHours <= 0) return {cls:'due-over',  label:'已過期'};
+  if(diffHours <= TODAY_HOURS) return {cls:'due-today', label:'今日截止'};
+  if(diffDays  <= SOON_DAYS)  return {cls:'due-soon',  label:`${Math.ceil(diffDays)}日內截止`};
+  return {cls:'', label:''};
+}
+
+// ---- Persistence (狀態 + 備註) -----------------------------------------
+const KEY = "kinder-index:v1";         // 勾選狀態
+const NOTES_KEY = "kinder-notes:v1";   // 自訂備註
 const saved = JSON.parse(localStorage.getItem(KEY) || "{}");
-function getSaved(name){ return saved[name]; }
-function setSaved(name,val){ saved[name] = !!val; localStorage.setItem(KEY, JSON.stringify(saved)); }
-function clearSaved(){ localStorage.removeItem(KEY); location.reload(); }
+const savedNotes = JSON.parse(localStorage.getItem(NOTES_KEY) || "{}");
+const getSaved = (name)=> saved[name];
+const setSaved = (name,val)=>{ saved[name]=!!val; localStorage.setItem(KEY, JSON.stringify(saved)); };
+const getNote  = (name, fallback)=> savedNotes[name] ?? fallback ?? "";
+const setNote  = (name,val)=>{ savedNotes[name]=val||""; localStorage.setItem(NOTES_KEY, JSON.stringify(savedNotes)); };
+const clearSaved = ()=>{ localStorage.removeItem(KEY); localStorage.removeItem(NOTES_KEY); location.reload(); };
 
 // ---- Render ------------------------------------------------------------
 const tbody = document.querySelector('#tbl tbody');
@@ -106,22 +182,48 @@ function render(){
     const persisted = getSaved(r.name);
     const isChecked = typeof persisted === 'boolean' ? persisted : r.checked;
 
-    const textBlob = (r.name + ' ' + r.date + ' ' + (r.note||'')).toLowerCase();
+    const userNote = getNote(r.name, r.note);
+    const textBlob = (r.name + ' ' + (r.date||'') + ' ' + (userNote||'')).toLowerCase();
     if(q && !textBlob.includes(q)) return;
     if(onlyChecked && !isChecked) return;
 
     const tr = document.createElement('tr');
 
+    // col 1: name + note (+ edit)
     const td1 = document.createElement('td');
-    td1.innerHTML = `<div class="name">${r.name}</div>` + (r.note ? `<div class="note">備註：${r.note}</div>` : '');
+    const noteHtml = userNote ? `<div class="note">備註：<span class="note-text">${userNote}</span></div>` : `<div class="note">備註：<span class="note-text"></span></div>`;
+    td1.innerHTML = `<div class="name">${r.name}</div>${noteHtml}`;
+    const actions = document.createElement('div');
+    actions.className = 'note-actions';
+    const btnEdit = document.createElement('button');
+    btnEdit.className = 'icon-btn';
+    btnEdit.textContent = '✏️ 編輯備註';
+    btnEdit.addEventListener('click', ()=>{
+      const current = getNote(r.name, r.note);
+      const val = prompt('輸入備註（支援 4/9 這類日期，會一起判斷截止）', current || '');
+      if(val === null) return;
+      setNote(r.name, val);
+      render();
+    });
+    actions.appendChild(btnEdit);
+    td1.appendChild(actions);
 
+    // col 2: date + highlight
     const td2 = document.createElement('td');
-    td2.innerHTML = r.date ? r.date : '<span class="muted">—</span>';
+    if(r.date || userNote){
+      const deadline = parseDeadline((r.date||'') + ' ' + (userNote||''));
+      const {cls,label} = deadlineClass(deadline);
+      td2.className = cls ? `due ${cls}` : '';
+      if(cls) td2.setAttribute('data-due-label', label);
+      td2.textContent = r.date || '—';
+    }else{
+      td2.innerHTML = '<span class="muted">—</span>';
+    }
 
+    // col 3: status
     const td3 = document.createElement('td');
     const label = document.createElement('label');
     label.className = 'status-pill ' + (isChecked ? 'status-ok' : 'status-empty');
-
     const chk = document.createElement('input');
     chk.type = 'checkbox';
     chk.className = 'check';
@@ -129,14 +231,10 @@ function render(){
     chk.addEventListener('change', e => {
       setSaved(r.name, e.target.checked);
       label.className = 'status-pill ' + (e.target.checked ? 'status-ok' : 'status-empty');
+      text.textContent = e.target.checked ? '✅ 已處理' : '待處理';
     });
-
     const text = document.createElement('span');
     text.textContent = isChecked ? '✅ 已處理' : '待處理';
-    // keep text in sync
-    const observer = new MutationObserver(() => { text.textContent = chk.checked ? '✅ 已處理' : '待處理'; });
-    observer.observe(chk, { attributes:true, attributeFilter:['checked']});
-
     label.appendChild(chk); label.appendChild(text);
     td3.appendChild(label);
 
@@ -160,8 +258,7 @@ function exportCsv(){
   const visible = Array.from(tbody.querySelectorAll('tr')).map(tr => {
     const tds = tr.querySelectorAll('td');
     const name = tds[0].querySelector('.name').textContent.trim();
-    const noteEl = tds[0].querySelector('.note');
-    const note = noteEl ? noteEl.textContent.replace(/^備註：/,'') : '';
+    const note = (tds[0].querySelector('.note-text')?.textContent || '').trim();
     const date = tds[1].textContent.trim();
     const status = tds[2].querySelector('input').checked ? '已處理' : '待處理';
     return [name, (date || '') + (note? ` | 備註:${note}`:''), status];
@@ -175,7 +272,6 @@ function exportCsv(){
   a.download = '幼稚園申請追蹤.csv';
   a.click();
 }
-
 document.getElementById('exportCsv').addEventListener('click', exportCsv);
 </script>
 </body>
